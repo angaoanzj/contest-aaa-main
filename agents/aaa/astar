@@ -1,0 +1,174 @@
+
+import time
+from copy import deepcopy
+from collections import deque
+import heapq
+from Splendor.splendor_model import SplendorGameRule
+import random
+
+THINKTIME = 0.95
+currentGameRule = SplendorGameRule(2)
+GEMS = ['red', 'green', 'blue', 'black', 'white', 'yellow']
+
+# FUNCTIONS ----------------------------------------------------------------------------------------------------------#
+
+
+# Generates actions from this state.
+def GetActions(state,agent_id):
+    actions = currentGameRule.getLegalActions(state,agent_id)
+    myGamNumber = sum(state.agents[agent_id].gems.values())
+    for action in actions:
+        if myGamNumber >= 8:
+            # remove the one larger than 3
+            if action["type"] == 'collect_diff' or action['type'] == 'collect_same':
+                if sum(action['collected_gems'].values()) > 10 - myGamNumber:
+                    actions.remove(action)
+        # elif myGamNumber <= 8:
+        #     if action['type'] == 'collect_same':
+        #         if sum(action['collected_gems'].values()) < 2:
+        #             actions.remove(action)
+               
+    return actions
+
+
+# Carry out a given action on this state and return any resultant reward score.
+def DoAction(state, action, agent_id):
+    reward = 0
+    newstate = currentGameRule.generateSuccessor(state,action,agent_id)
+    return reward,newstate
+
+
+# Defines this agent.
+class myAgent():
+    def __init__(self, _id):
+        self.id = _id # Agent needs to remember its own id.
+
+    # Take a list of actions and an initial state, and perform breadth-first search within a time limit.
+    # Return the first action that leads to reward, if any was found.
+    def SelectAction(self, actions, rootstate):
+        start_time = time.time()
+        queue      = PriorityQueue()  # Initialise queue. First node = root state and an empty path.
+        actionList = GetActions(rootstate,self.id)
+        currentScore, currentGemNumber = getState(rootstate,self.id)
+        emycurrentScore, emycurrentGemNumber = getState(rootstate,(self.id+1%2))
+        # print("currentScore, currentGemNumber",currentScore, currentGemNumber)
+        # print("emycurrentScore, emycurrentGemNumber",emycurrentScore, emycurrentGemNumber)
+        for action in actionList:
+            reward,gemsValues = getReward(action)
+            if reward + currentScore >= 15:
+                return action
+            
+            # print(reward,gemsValues)
+            hValue = huristic(currentScore,currentGemNumber,reward,gemsValues,action)
+            queue.push(action, - (reward + hValue))
+        return queue.pop() 
+    
+    
+# END FILE -----------------------------------------------------------------------------------------------------------#
+
+def huristic(currentScore,currentGemNumber,reward,gemsValues,action):
+    hValue = 0
+    canPursh = False
+    
+    nextGemNumber = currentGemNumber + gemsValues
+    nextScore = currentScore + reward
+    if action['type'] == 'buy_available' or action['type'] == 'buy_reserve':
+        for i in nextGemNumber:
+            if i >= 0:
+                canPursh = True
+        if canPursh:
+            hValue += 1
+            if reward > 0:
+               hValue += 10         
+                  
+    return hValue
+
+
+#get current state card 
+def getState(state,agent_id):
+    currentAgent = state.agents[agent_id]
+    score = state.agents[agent_id].score
+    # print(score)
+    gemList = list(currentAgent.cards)
+    cardList = [0, 0, 0, 0, 0, 0]
+    # cardList = []
+    for gemColor in GEMS:
+        if gemColor in gemList:
+            cardList[GEMS.index(gemColor)] = currentAgent.gems[gemColor] + len(currentAgent.cards[gemColor])
+        
+    return score, cardList
+
+# only get this action reward
+def getReward(action):
+    reward = 0
+    gemsValues = []
+    # print(action)
+    if action['type'] == 'collect_diff' or action['type'] == 'collect_same':
+        for gemColor in GEMS:
+            tempValue = 0
+            gemList = list(action["collected_gems"])
+            gemreturnList = list(action["returned_gems"])
+            if gemColor in gemList:
+                    tempValue = action['collected_gems'][gemColor]
+                    if gemColor in gemreturnList:
+                        tempValue = tempValue - action['returned_gems'][gemColor]
+            gemsValues.append(tempValue)    
+        
+    elif action['type'] == 'reserve':    
+        gemsValues = [0, 0, 0, 0, 0, 1]
+    
+    elif action['type'] == 'buy_available' or action['type'] == 'buy_reserve':
+        reward = reward + action['card'].points
+        for gemColor in GEMS:
+            tempValue = 0
+            gemreturnList = list(action["returned_gems"])
+            if gemColor in gemreturnList:
+                    tempValue =  -1 * action['returned_gems'][gemColor]
+            gemsValues.append(tempValue)
+        gemsValues[GEMS.index(action['card'].colour)] += 1
+    if action['noble'] != None:
+        reward += 3    
+    # print(reward)            
+    # print(gemsValues)    
+    return reward,gemsValues
+
+
+
+
+class PriorityQueue:
+    """
+      Implements a priority queue data structure. Each inserted item
+      has a priority associated with it and the client is usually interested
+      in quick retrieval of the lowest-priority item in the queue. This
+      data structure allows O(1) access to the lowest-priority item.
+    """
+    def  __init__(self):
+        self.heap = []
+        self.count = 0
+
+    def push(self, item, priority):
+        entry = (priority, self.count, item)
+        heapq.heappush(self.heap, entry)
+        self.count += 1
+
+    def pop(self):
+        (_, _, item) = heapq.heappop(self.heap)
+        return item
+
+    def isEmpty(self):
+        return len(self.heap) == 0
+
+    def update(self, item, priority):
+        # If item already in priority queue with higher priority, update its priority and rebuild the heap.
+        # If item already in priority queue with equal or lower priority, do nothing.
+        # If item not in priority queue, do the same thing as self.push.
+        for index, (p, c, i) in enumerate(self.heap):
+            if i == item:
+                if p <= priority:
+                    break
+                del self.heap[index]
+                self.heap.append((priority, c, item))
+                heapq.heapify(self.heap)
+                break
+        else:
+            self.push(item, priority)
